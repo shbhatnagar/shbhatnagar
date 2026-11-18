@@ -26,6 +26,8 @@ jobs:
           plugin_languages_limit: 0
           repositories_affiliations: owner, collaborator, organization_member
           repositories_forks: yes
+          # ponytail: batch 100 times out on GitHub GraphQL ~75% of the time; metrics silently renders "0 Languages" when the first page fails
+          repositories_batch: 25
 
       - uses: lowlighter/metrics@latest
         with:
