@@ -12,8 +12,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: lowlighter/metrics@latest
-        with:
+      - name: Languages card
+        uses: lowlighter/metrics@latest
+        with: &languages
           token: ${{ secrets.METRICS_TOKEN }}
           filename: github-languages.svg
           base: ""
@@ -26,10 +27,48 @@ jobs:
           plugin_languages_limit: 0
           repositories_affiliations: owner, collaborator, organization_member
           repositories_forks: yes
-          # ponytail: batch 100 times out on GitHub GraphQL ~75% of the time; metrics silently renders "0 Languages" when the first page fails
-          repositories_batch: 25
+          # ponytail: metrics stops paging after any page < 100 repos, so batch must cover all repos (67 now) in one page.
+          # Big pages time out (~1 in 8 at 70) and metrics then silently renders "0 Languages", hence the check + retries below.
+          # Upgrade path: raise this if repo count passes 70.
+          repositories_batch: 70
 
-      - uses: lowlighter/metrics@latest
+      - name: Check languages card
+        id: check1
+        continue-on-error: true
+        env: &gh
+          GH_TOKEN: ${{ github.token }}
+        run: &check |
+          svg=$(gh api "repos/$GITHUB_REPOSITORY/contents/github-languages.svg" --jq .content | base64 -d)
+          if grep -qE '^[[:space:]]*0 Languages' <<<"$svg"; then
+            echo "::error::Languages card rendered with 0 languages"
+            exit 1
+          fi
+
+      - name: Languages card (retry 1)
+        if: steps.check1.outcome == 'failure'
+        uses: lowlighter/metrics@latest
+        with: *languages
+
+      - name: Check languages card (retry 1)
+        id: check2
+        if: steps.check1.outcome == 'failure'
+        continue-on-error: true
+        env: *gh
+        run: *check
+
+      - name: Languages card (retry 2)
+        if: steps.check2.outcome == 'failure'
+        uses: lowlighter/metrics@latest
+        with: *languages
+
+      - name: Check languages card (retry 2)
+        if: steps.check2.outcome == 'failure'
+        env: *gh
+        run: *check
+
+      - name: Streak card
+        if: ${{ !cancelled() }}
+        uses: lowlighter/metrics@latest
         with:
           token: ${{ secrets.METRICS_TOKEN }}
           filename: github-streak.svg
