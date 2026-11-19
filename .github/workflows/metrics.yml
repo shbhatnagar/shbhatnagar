@@ -12,59 +12,21 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
+      # Own renderer: lowlighter/metrics' repo query times out for 67 repos and then renders "0 Languages".
+      # See .github/scripts/languages-card.mjs for details. The script exits non-zero instead of writing an empty card.
       - name: Languages card
-        uses: lowlighter/metrics@latest
-        with: &languages
-          token: ${{ secrets.METRICS_TOKEN }}
-          filename: github-languages.svg
-          base: ""
-          config_animations: no
-          plugin_languages: yes
-          plugin_languages_indepth: no
-          plugin_languages_categories: programming, data
-          plugin_languages_sections: most-used
-          plugin_languages_details: percentage, bytes-size
-          plugin_languages_limit: 0
-          repositories_affiliations: owner, collaborator, organization_member
-          repositories_forks: yes
-          # ponytail: metrics stops paging after any page < 100 repos, so batch must cover all repos (67 now) in one page.
-          # Big pages time out (~1 in 8 at 70) and metrics then silently renders "0 Languages", hence the check + retries below.
-          # Upgrade path: raise this if repo count passes 70.
-          repositories_batch: 70
+        env:
+          GH_TOKEN: ${{ secrets.METRICS_TOKEN }}
+        run: node .github/scripts/languages-card.mjs github-languages.svg
 
-      - name: Check languages card
-        id: check1
-        continue-on-error: true
-        env: &gh
-          GH_TOKEN: ${{ github.token }}
-        run: &check |
-          svg=$(gh api "repos/$GITHUB_REPOSITORY/contents/github-languages.svg" --jq .content | base64 -d)
-          if grep -qE '^[[:space:]]*0 Languages' <<<"$svg"; then
-            echo "::error::Languages card rendered with 0 languages"
-            exit 1
-          fi
-
-      - name: Languages card (retry 1)
-        if: steps.check1.outcome == 'failure'
-        uses: lowlighter/metrics@latest
-        with: *languages
-
-      - name: Check languages card (retry 1)
-        id: check2
-        if: steps.check1.outcome == 'failure'
-        continue-on-error: true
-        env: *gh
-        run: *check
-
-      - name: Languages card (retry 2)
-        if: steps.check2.outcome == 'failure'
-        uses: lowlighter/metrics@latest
-        with: *languages
-
-      - name: Check languages card (retry 2)
-        if: steps.check2.outcome == 'failure'
-        env: *gh
-        run: *check
+      - name: Commit languages card
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add github-languages.svg
+          git diff --cached --quiet || { git commit -m "Update github-languages.svg - [Skip GitHub Action]" && git push; }
 
       - name: Streak card
         if: ${{ !cancelled() }}
